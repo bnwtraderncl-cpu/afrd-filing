@@ -62,11 +62,11 @@ REPLACES whatever the report carried. Section 7.1: "filing mints through the
 helper, so `artifact_id` is correct by construction rather than checked after the
 fact." Nothing in this module formats a timestamp.
 
-`minted_by` on every proposed entry is rewritten to that minted id, for the same
-reason. A producer writes its own `artifact_id` there, and cannot know the id
-filing will mint; leaving the producer's value would register a convention
-against an id no note carries, which is the dangling reference again, minted at
-the moment of filing.
+`minted_by` on every proposed entry is written from that minted id. A producer
+may not write the field at all -- §7.0 refuses a proposal carrying it -- because
+it cannot know the id filing will mint, and a guess reaching the registry
+registers a convention against an id no note carries, which is the dangling
+reference again, minted at the moment of filing.
 
 WHAT IT WRITES, AND NOWHERE ELSE
 --------------------------------
@@ -314,6 +314,20 @@ def _check_proposal(entry, ref):
                 )
             )
 
+    if "minted_by" in entry:
+        out.append(
+            Failure(
+                rule="section 7.0 proposal minted_by",
+                where="%s, `minted_by`" % where,
+                expected="no `minted_by` at all. It is the `artifact_id` of the "
+                "report making the proposal, and filing mints that id -- so a "
+                "producer can only guess, and a guess that reaches the registry "
+                "is a dangling reference at the moment of filing. Filing writes "
+                "the field from the id it minted (section 7.0)",
+                found="`%s`" % entry["minted_by"],
+            )
+        )
+
     status = entry.get("status")
     if status is not None and status != _PROPOSED_STATUS:
         out.append(
@@ -509,8 +523,8 @@ def _render_entry(entry, minted, minted_on):
     """One registry entry, in the shape the registry already uses.
 
     `minted_by` and `status` are filing's, not the producer's: the id because the
-    producer cannot know it, the status because the registry permits an agent no
-    other one.
+    producer cannot know it and §7.0 refuses a proposal that writes it anyway,
+    the status because the registry permits an agent no other one.
     """
     out = ["```yaml\n", "- ref: %s\n" % entry["ref"]]
     out.append(_folded("description", entry["description"], "  "))

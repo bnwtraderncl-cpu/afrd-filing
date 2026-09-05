@@ -224,11 +224,13 @@ The `artifact_id` is minted here and **replaces** whatever the report carried:
 construction rather than checked after the fact". Nothing in the module formats a
 timestamp.
 
-`minted_by` on every proposed entry is rewritten to that minted id, for the same
-reason. A producer writes its own `artifact_id` there and cannot know the id
-filing will mint, so keeping the producer's value would register a convention
-against an id no note carries -- the dangling reference again, created at the
-moment of filing.
+`minted_by` on every proposed entry is written from that minted id. **A producer
+may not write the field at all**, and a proposal carrying it is refused: §7.0.
+The producer cannot know the id filing will mint, so any value it writes is a
+guess, and a guess reaching the registry registers a convention against an id no
+note carries -- the dangling reference again, created at the moment of filing.
+Refused rather than silently overwritten, because a value nobody reads is a value
+nobody notices is wrong.
 
 A ref the registry already carries is **not** written a second time.
 `conventions.md`: "A proposed ref that already exists means the system is
@@ -284,18 +286,17 @@ Found while implementing, not resolved here.
 Three of the five found against v0.3 were closed by v0.4 and are implemented
 rather than listed: `robustness_tested` gives the accounting a field for a
 variation that HELD, §5 now fixes `status` on every outcome, and §4's "the bound
-is 1" is marked `[J]` rather than claimed checkable. What is left is below.
+is 1" is marked `[J]` rather than claimed checkable.
 
-**§7.1 does not say what happens to the producer's own copy of a proposed
-entry.** The producer writes `minted_by: <its own artifact_id>` into the
-proposal block in its report, and cannot know the id filing will mint. Filing
-rewrites `minted_by` in the entry it registers, so the registry is right. The
-report body is filed intact, so the note keeps the producer's guess in its
-proposal block, and a reader comparing the two sees them disagree. Filing does
-not rewrite a report's prose, which would be a larger authority than filing
-should hold. The clean resolution is upstream: a producer should not write
-`minted_by` at all, because it is not a field it can know. Until §7.1 or the
-specialist instructions say so, the disagreement stands.
+Four more were closed by v0.5, and are likewise implemented rather than listed:
+§7.0 forbids a producer emitting `minted_by` and makes a proposal carrying it a
+refusal, §5 states that a producer never emits `superseded` and that filing
+refuses a report carrying it -- noting, as this README did, that re-running the
+gate over an already-superseded note on disk refuses it too -- §7.1 fixes the
+insertion point at the end of the `## Registry` section and makes a missing
+anchor a refusal rather than a guess, and §7.1 rules that a proposal reusing an
+existing ref is reused with the existing entry left untouched, the same-or-
+different question staying `[J]` and the operator's. What is left is below.
 
 **"for that source *and granularity*" (§7) has no second half.** v0.4 removed the
 phrase and made it an open question rather than resolving it: a `source_id` is
@@ -303,21 +304,6 @@ phrase and made it an open question rather than resolving it: a `source_id` is
 (source, granularity) pair and the `usable_from` lookup is per source. Read as a
 second requirement — that a note's `timeframe` match its source's `granularity`
 — it is a rule written down nowhere else, so it is not implemented.
-
-**`status: superseded` has no outcome that permits it.** §5's table gives a
-status for every outcome and none of them is `superseded`, which the same
-section says is "set later, by whatever supersedes the note". Filing reads a
-report a producer wrote, so refusing it there is right. Re-running the gate over
-an already-superseded note on disk refuses it too, which is the gate being used
-outside what it is for, and is worth knowing before someone runs it over the
-vault.
-
-**Nothing says what filing does with a proposed entry for a ref that already
-exists but describes something else.** `conventions.md` says a slug collision is
-"a feature, not an error" and offers two responses: reuse the existing entry, or
-surface the collision to the operator. Filing reuses. Telling the two cases
-apart means reading two descriptions and deciding whether they are the same
-choice, which is `[J]`.
 
 **An unresolvable `brief_ref` silently skips the `hypothesis_ref` match.** There
 is nothing to match against, and a second failure would name one cause twice.

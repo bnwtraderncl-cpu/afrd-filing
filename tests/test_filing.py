@@ -50,7 +50,6 @@ PROPOSAL = """
 - ref: CONV-london-open-first-bar
   description: >-
     The London open is taken as the first H1 bar opening at or after 07:00 UTC.
-  minted_by: MARKET_STRUCTURE-20260905T000000Z
   minted_because: >-
     BRIEF-20260904T223000Z says "the London open" without fixing a bar.
   minted: 2026-09-05
@@ -205,8 +204,9 @@ def test_a_proposed_convention_lands_and_the_ref_resolves(filing_vault):
     assert entry["status"] == "provisional"
     assert entry["minted"] == "2026-09-05"
     assert entry["minted_by"] == frontmatter_of(path)["artifact_id"], (
-        "minted_by must name the id filing minted, not the one the producer "
-        "guessed -- otherwise the registry carries a dangling reference"
+        "minted_by must name the id filing minted. The producer does not write "
+        "the field at all (section 7.0); filing supplies it, and a registry "
+        "entry without it is a dangling reference"
     )
     assert "07:00 UTC" in entry["description"]
 
@@ -261,6 +261,24 @@ def test_a_proposal_at_a_status_an_agent_may_not_set_is_refused(filing_vault):
     )
     assert not filed
     assert any("only status an agent may propose" in f.expected for f in failures)
+    assert snapshot(filing_vault) == before
+
+
+def test_a_proposal_carrying_minted_by_is_refused(filing_vault):
+    """Section 7.0: the producer cannot know the id filing will mint, so it
+    may not write the field. The guess is refused rather than silently
+    overwritten -- a value nobody reads is a value nobody notices is wrong."""
+    before = snapshot(filing_vault)
+    guessed = PROPOSAL.replace(
+        "- ref: CONV-london-open-first-bar\n",
+        "- ref: CONV-london-open-first-bar\n"
+        "  minted_by: MARKET_STRUCTURE-20260905T000000Z\n",
+    )
+    filed, failures = file_report(
+        with_fields(APPLIED_NEW) + guessed, vault_root=filing_vault
+    )
+    assert not filed
+    assert any(f.where.endswith("`minted_by`") for f in failures), render(failures)
     assert snapshot(filing_vault) == before
 
 
