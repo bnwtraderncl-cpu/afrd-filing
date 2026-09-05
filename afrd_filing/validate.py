@@ -110,6 +110,7 @@ def validate(report, vault_root=None, vault=None):
     failures += check_enums(fm)
     failures += check_field_presence(fm)
     failures += check_retry_bound(fm)
+    failures += check_status(fm)
     failures += check_brief_ref(fm, vault)
     failures += check_hypothesis_ref(fm, vault)
     failures += check_data_sources(fm, vault)
@@ -520,34 +521,88 @@ def _under(path, root):
         return False
 
 
+def check_status(fm):
+    """section 5: `status` matches the table for the outcome.
+
+    Written down in v0.4 and marked `[C]`. Before that it was a rule every
+    sample note followed and nothing could refuse a note for ignoring.
+
+        pass                  stored
+        hold, any type        awaiting_operator
+        fail, attempt 1       stored              -- check_retry_bound
+        fail, exhausted       awaiting_operator   -- check_retry_bound
+
+    The two fail rows stay with `check_retry_bound`, which already owns them and
+    can say WHY (the operator is not needed until the bound is exhausted). This
+    covers the two rows nothing checked before.
+
+    `superseded` is refused here like any other mismatch. section 5: it "is set
+    later, by whatever supersedes the note; a producer never mints one" -- and
+    what this gate reads is a report being filed, whose frontmatter its producer
+    wrote. The cost is that re-running the gate over an already-superseded note
+    on disk refuses it, which is the gate being used outside what it is for.
+    """
+    outcome = fm.get("outcome")
+    if outcome == "pass":
+        expected, why = "stored", "a pass is filed and blocks nothing"
+    elif outcome == "hold":
+        expected, why = (
+            "awaiting_operator",
+            "a hold is the outcome only the operator can resolve",
+        )
+    else:
+        # `fail` is check_retry_bound's, and an unknown outcome is the enum
+        # check's. Neither is restated here.
+        return []
+
+    status = fm.get("status")
+    if status == expected:
+        return []
+    return [
+        Failure(
+            rule="section 5 status",
+            where="frontmatter `status`",
+            expected="`status: %s` on outcome `%s` -- %s (section 5 table). "
+            "`status` is queue membership only (schema rule 8)"
+            % (expected, outcome, why),
+            found=_show(status),
+        )
+    ]
+
+
 def check_convention_accounting(fm):
-    """section 6: `untested_dependence` present, and every applied convention accounted for.
+    """section 6: every applied convention accounted for, in exactly one field.
 
-    Two rules, both `[C]`:
+    Three rules, all `[C]`:
 
-      presence   `untested_dependence` is required whenever `conventions_applied`
-                 is non-empty. Presence only -- whether `what_would_change` names
-                 a direction of risk is `[J]` (section 6, schema rule 11).
+      presence    `untested_dependence` is required whenever `conventions_applied`
+                  is non-empty. Presence only -- whether `what_would_change`
+                  names a direction of risk is `[J]`.
 
-      accounting every convention in `conventions_applied` is "either varied with
-                 numbers reported, or listed in `untested_dependence`".
+      accounting  every convention in `conventions_applied` appears in
+                  `robustness_tested` or `untested_dependence`, "and not both".
 
-    The accounting rule has a gap, and this implementation takes the narrow
-    reading of it. A variation that was PERFORMED AND HELD is reported in the
-    note's body, and no frontmatter field records it: `robustness_broken` carries
-    only variations that FAILED (rule 12). So the only mechanically visible
-    accounting is `untested_dependence` or `robustness_broken`, and a convention
-    varied successfully and written up in prose alone is refused here even though
-    section 6 permits it. That is stated in the refusal rather than hidden, because the
-    remedy -- list it in `untested_dependence`, or record the break -- is cheap,
-    and the alternative reading (accept anything, since prose might cover it)
-    checks nothing at all. See README, "What the standard leaves ambiguous".
+      restatement a `robustness_tested` entry with `held: false` carries
+                  `conclusion_now_rests_on`.
+
+    v0.3 had no field for a variation that was performed and HELD, so the
+    accounting it called mechanical was not: a convention varied successfully
+    lived in the note's body, and the gate had to refuse an honest report or
+    check nothing. `robustness_tested` (v0.4 section 6, schema rule 12) records
+    both outcomes, and that is what closes it.
+
+    What is still not mechanical, and is section 8's: that a variation was run
+    and went unreported.
     """
     applied = fm.get("conventions_applied")
+    tested_raw = fm.get("robustness_tested")
+
+    out = _check_robustness_entries(tested_raw)
+
     if applied is None or (isinstance(applied, list) and not applied):
-        return []
+        return out
     if not isinstance(applied, list):
-        return [
+        return out + [
             Failure(
                 rule="section 6 conventions",
                 where="frontmatter `conventions_applied`",
@@ -556,7 +611,6 @@ def check_convention_accounting(fm):
             )
         ]
 
-    out = []
     untested = fm.get("untested_dependence")
     if untested is None:
         out.append(
@@ -564,8 +618,8 @@ def check_convention_accounting(fm):
                 rule="section 6 untested_dependence",
                 where="frontmatter `untested_dependence`",
                 expected="required whenever `conventions_applied` is non-empty "
-                "(section 6; schema rule 11). An empty list is valid only if every "
-                "applied convention was varied and the result reported",
+                "(section 6; schema rule 11). An empty list is valid only if "
+                "every applied convention appears in `robustness_tested`",
                 found="nothing, alongside `conventions_applied` with %d entr%s"
                 % (len(applied), "y" if len(applied) == 1 else "ies"),
             )
@@ -583,37 +637,118 @@ def check_convention_accounting(fm):
         )
         untested = []
 
-    accounted = _named_conventions(untested, "untested_dependence")
-    accounted |= _named_conventions(fm.get("robustness_broken"), "robustness_broken")
+    not_varied = _named_conventions(untested, "untested_dependence")
+    varied = _named_conventions(tested_raw, "robustness_tested")
+    accounted = not_varied | varied
 
     for index, ref in enumerate(applied):
-        if isinstance(ref, str) and ref in accounted:
-            continue
-        out.append(
-            Failure(
-                rule="section 6 convention accounting",
-                where="frontmatter `conventions_applied` entry %d" % (index + 1),
-                expected="every applied convention accounted for -- named in an "
-                "`untested_dependence` entry, or in a `robustness_broken` entry "
-                "if it was varied and did not hold (section 6; schema rule 11). An "
-                "unlisted dependence presents a conclusion as resting on fewer "
-                "choices than it does. A variation that was performed and HELD "
-                "is reported in the body, which this check cannot see: list it "
-                "in `untested_dependence` if that is what happened",
-                found=_show(ref)
-                + (
-                    " -- accounted for: none"
-                    if not accounted
-                    else " -- accounted for: %s"
-                    % ", ".join("`%s`" % c for c in sorted(accounted))
-                ),
+        in_untested = isinstance(ref, str) and ref in not_varied
+        in_tested = isinstance(ref, str) and ref in varied
+        if in_untested and in_tested:
+            out.append(
+                Failure(
+                    rule="section 6 convention accounting",
+                    where="frontmatter `conventions_applied` entry %d" % (index + 1),
+                    expected="each applied convention in EXACTLY ONE of "
+                    "`robustness_tested` or `untested_dependence` -- the two "
+                    "partition what was checked from what was not, and a "
+                    "convention in both says two contradictory things about one "
+                    "choice (section 6; schema rule 11)",
+                    found="`%s`, in both" % ref,
+                )
             )
-        )
+        elif not (in_untested or in_tested):
+            out.append(
+                Failure(
+                    rule="section 6 convention accounting",
+                    where="frontmatter `conventions_applied` entry %d" % (index + 1),
+                    expected="every applied convention accounted for -- named in "
+                    "a `robustness_tested` entry if it was varied, whether it "
+                    "held or not, or in an `untested_dependence` entry if it was "
+                    "not (section 6; schema rule 11). An unlisted dependence "
+                    "presents a conclusion as resting on fewer choices than it "
+                    "does",
+                    found=_show(ref)
+                    + (
+                        " -- accounted for: none"
+                        if not accounted
+                        else " -- accounted for: %s"
+                        % ", ".join("`%s`" % c for c in sorted(accounted))
+                    ),
+                )
+            )
+    return out
+
+
+def _check_robustness_entries(entries):
+    """Schema rule 12: `held` on every entry, `conclusion_now_rests_on` when false.
+
+    Checked whether or not `conventions_applied` is populated: an entry
+    recording a variation whose result nobody can read is the defect regardless
+    of what else the note carries.
+    """
+    if entries is None:
+        return []
+    if not isinstance(entries, list):
+        return [
+            Failure(
+                rule="section 6 robustness_tested",
+                where="frontmatter `robustness_tested`",
+                expected="a list of entries, each naming a `convention` and "
+                "carrying `held` (schema rule 12)",
+                found=_show(entries),
+            )
+        ]
+
+    out = []
+    for index, entry in enumerate(entries):
+        where = "frontmatter `robustness_tested` entry %d" % (index + 1)
+        if not isinstance(entry, dict):
+            out.append(
+                Failure(
+                    rule="section 6 robustness_tested",
+                    where=where,
+                    expected="a mapping carrying `convention`, `substituted`, "
+                    "`held` and `what_happened` (schema rule 12)",
+                    found=_show(entry),
+                )
+            )
+            continue
+        named = entry.get("convention")
+        where = "%s (`%s`)" % (where, named if isinstance(named, str) else "unnamed")
+        held = entry.get("held")
+        if not isinstance(held, bool):
+            out.append(
+                Failure(
+                    rule="section 6 robustness_tested",
+                    where=where,
+                    expected="`held: true` or `held: false` -- it is the field "
+                    "the section 6 accounting reads, and an entry without it "
+                    "records a variation whose result nobody can determine "
+                    "(schema rule 12)",
+                    found=_show(held),
+                )
+            )
+            continue
+        rests_on = entry.get("conclusion_now_rests_on")
+        if held is False and not (isinstance(rests_on, str) and rests_on.strip()):
+            out.append(
+                Failure(
+                    rule="section 6 robustness_tested",
+                    where=where,
+                    expected="`conclusion_now_rests_on` on every `held: false` "
+                    "entry -- a broken strand without a restatement leaves the "
+                    "reader unable to tell what survives, which looks like a "
+                    "disclosure while withholding the thing it is for "
+                    "(section 6; schema rule 12)",
+                    found=_show(rests_on),
+                )
+            )
     return out
 
 
 def _named_conventions(entries, field):
-    """The `convention:` of each entry in an accounting list."""
+    """The `convention:` of each entry in `untested_dependence` or `robustness_tested`."""
     out = set()
     if not isinstance(entries, list):
         return out

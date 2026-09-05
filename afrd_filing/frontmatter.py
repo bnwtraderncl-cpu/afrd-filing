@@ -3,7 +3,7 @@
 `afrd-ids` gets away with a line regex because it reads exactly two keys, both
 single-token. The gate reads whole reports: block scalars (`hold_reason`),
 sequences of scalars (`data_sources`), and sequences of mappings
-(`untested_dependence`, `robustness_broken`). That needs a parser.
+(`untested_dependence`, `robustness_tested`). That needs a parser.
 
 PyYAML is not installed and `afrd-ids` is standard-library-only, so this is a
 deliberate SUBSET parser rather than a partial YAML implementation. The

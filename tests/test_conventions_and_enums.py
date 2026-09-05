@@ -19,16 +19,26 @@ untested_dependence:
       Under an unsigned comparator the divergence may narrow or disappear.
 """
 
-BROKEN = """\
-robustness_broken:
+BROKE = """\
+robustness_tested:
   - convention: CONV-nonpush-sign-preopen
     substituted: unsigned comparator
-    what_failed: >-
+    held: false
+    what_happened: >-
       The split does not hold.
     extent: >-
       Holds in 10 of 48 cells.
     conclusion_now_rests_on: >-
       The population divergence alone.
+"""
+
+HELD = """\
+robustness_tested:
+  - convention: CONV-nonpush-sign-preopen
+    substituted: unsigned comparator
+    held: true
+    what_happened: >-
+      The divergence is unchanged under either sign.
 """
 
 
@@ -83,14 +93,63 @@ def test_an_applied_convention_accounted_for_nowhere_is_refused(vault):
     assert "CONV-nonpush-sign-preopen" in f.found      # what IS accounted for
 
 
-def test_a_convention_accounted_for_by_robustness_broken_is_enough(vault):
-    """rule 12 records what WAS varied and failed. That is an accounting too."""
-    body = edit(
-        with_blocks(APPLIED, "untested_dependence: []\n", BROKEN),
-        "untested_dependence: []\n",
-        "untested_dependence: []\n",
+def test_a_convention_accounted_for_by_a_break_is_enough(vault):
+    """rule 12 records what WAS varied. A variation that failed is an accounting."""
+    ok, failures = validate(
+        with_blocks(APPLIED, "untested_dependence: []\n", BROKE), vault_root=vault
     )
-    ok, failures = validate(body, vault_root=vault)
+    assert ok, render(failures)
+
+
+def test_a_convention_varied_and_HELD_is_accounted_for(vault):
+    """The v0.3 hole. `robustness_broken` had nowhere to put this and refused it."""
+    ok, failures = validate(
+        with_blocks(APPLIED, "untested_dependence: []\n", HELD), vault_root=vault
+    )
+    assert ok, render(failures)
+
+
+def test_a_convention_in_both_fields_is_refused(vault):
+    """section 6: in one of them, and not in both."""
+    ok, failures = validate(with_blocks(APPLIED, UNTESTED, HELD), vault_root=vault)
+    assert not ok
+    f = only(failures, "section 6 convention accounting")
+    assert "EXACTLY ONE" in f.expected
+    assert f.found == "`CONV-nonpush-sign-preopen`, in both"
+
+
+def test_a_break_without_a_restatement_is_refused(vault):
+    """rule 12: `held: false` requires `conclusion_now_rests_on`."""
+    no_restatement = BROKE[: BROKE.index("    conclusion_now_rests_on:")]
+    ok, failures = validate(
+        with_blocks(APPLIED, "untested_dependence: []\n", no_restatement),
+        vault_root=vault,
+    )
+    assert not ok
+    f = only(failures, "section 6 robustness_tested")
+    assert "conclusion_now_rests_on" in f.expected
+    assert "CONV-nonpush-sign-preopen" in f.where
+
+
+def test_a_variation_without_held_is_refused(vault):
+    """rule 12: `held` is the field the accounting reads."""
+    unheld = HELD.replace("    held: true\n", "")
+    ok, failures = validate(
+        with_blocks(APPLIED, "untested_dependence: []\n", unheld), vault_root=vault
+    )
+    assert not ok
+    rules = {f.rule for f in failures}
+    assert "section 6 robustness_tested" in rules
+    assert "`held: true` or `held: false`" in only(
+        failures, "section 6 robustness_tested"
+    ).expected
+
+
+def test_a_variation_that_held_needs_no_restatement(vault):
+    """There is nothing to restate when nothing broke."""
+    ok, failures = validate(
+        with_blocks(APPLIED, "untested_dependence: []\n", HELD), vault_root=vault
+    )
     assert ok, render(failures)
 
 
@@ -200,3 +259,43 @@ def test_a_non_integer_attempt_is_refused(vault):
     ok, failures = validate(edit(GOOD_REPORT, "attempt: 1", "attempt: first"), vault_root=vault)
     assert not ok
     assert only(failures, "section 4 retry bound").found == "`first`"
+
+
+# ---------------------------------------------------------------- section 5 status
+
+
+def test_a_pass_that_is_not_stored_is_refused(vault):
+    """v0.4 section 5 writes down what every sample note already did."""
+    ok, failures = validate(
+        edit(GOOD_REPORT, "status: stored", "status: awaiting_operator"),
+        vault_root=vault,
+    )
+    assert not ok
+    f = only(failures, "section 5 status")
+    assert "`status: stored` on outcome `pass`" in f.expected
+    assert f.found == "`awaiting_operator`"
+
+
+def test_a_hold_that_is_not_awaiting_operator_is_refused(vault):
+    hold = edit(
+        GOOD_REPORT,
+        "outcome: pass\nfinding: negative\n",
+        "outcome: hold\nhold_type: scope\nhold_reason: >-\n"
+        "  The declared window cannot reach the question.\n",
+    )
+    ok, failures = validate(hold, vault_root=vault)
+    assert not ok
+    assert only(failures, "section 5 status").found == "`stored`"
+
+    ok, failures = validate(
+        edit(hold, "status: stored", "status: awaiting_operator"), vault_root=vault
+    )
+    assert ok, render(failures)
+
+
+def test_a_missing_status_is_refused(vault):
+    ok, failures = validate(
+        edit(GOOD_REPORT, "status: stored\n", ""), vault_root=vault
+    )
+    assert not ok
+    assert only(failures, "section 5 status").found == "nothing"
