@@ -30,7 +30,13 @@ def real_vault() -> Path:
 
 @pytest.fixture
 def vault(tmp_path: Path) -> Path:
-    """A minimal vault: one brief, two hypotheses, two data sources, one note."""
+    """A minimal vault: a brief, two hypotheses, two data sources, a registry, a note.
+
+    `conventions.md` carries the same shape as the real one -- entries as fenced
+    yaml blocks under `## Registry`, then a `---` rule and `## Fields` -- because
+    the writing half inserts new entries at that boundary and would have nothing
+    to aim at in a fixture that only looked roughly similar.
+    """
     root = tmp_path / "vault"
     (root / "afrd" / "briefs").mkdir(parents=True)
     (root / "afrd" / "research").mkdir(parents=True)
@@ -115,6 +121,10 @@ def vault(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
 
+    (root / "afrd" / "system" / "conventions.md").write_text(
+        CONVENTIONS_REGISTRY, encoding="utf-8"
+    )
+
     (root / "afrd" / "research" / "2026-09-05-fixture-filed-note.md").write_text(
         GOOD_REPORT.replace(
             "MARKET_STRUCTURE-20260905T090000Z",
@@ -171,3 +181,39 @@ def rules_hit(failures):
 
 def fields_hit(failures):
     return sorted({f.where for f in failures})
+
+
+# The conventions registry, in the real one's shape. `CONV-nonpush-sign-preopen`
+# is the one entry that already exists, so a report reusing it must not produce a
+# second copy.
+CONVENTIONS_REGISTRY = """\
+---
+type: system
+status: draft
+---
+
+# Fixture conventions registry
+
+## Registry
+
+```yaml
+- ref: CONV-nonpush-sign-preopen
+  description: >-
+    On days with no qualifying push, the unconditional comparator is signed by
+    that day's own pre-open move.
+  minted_by: MARKET_STRUCTURE-20260211T141800Z
+  minted_because: >-
+    BRIEF-20260904T223000Z defines unconditional_move as a signed measurement
+    but leaves non-push days without a direction.
+  minted: 2026-02-11
+  status: provisional
+```
+
+---
+
+## Fields
+
+| Field | Type | Meaning |
+|---|---|---|
+| `ref` | string | the convention ref itself |
+"""

@@ -1,10 +1,16 @@
-"""The gate writes nothing, asserted against this working tree.
+"""The CHECKING half writes nothing, asserted against this working tree.
 
-`pass_fail_hold_standard.md` section 7.1 makes registry writes part of filing.
-That makes "does this write?" a real question about this package rather than an
-obvious no -- the writing half is coming, and the checking half must not grow it
-by accident. `afrd-ids` asserts its own no-local-time property the same way, by
-scanning its source rather than trusting that nobody added one.
+`pass_fail_hold_standard.md` section 7.1 makes registry writes part of filing,
+so this package now contains a module that writes. That is exactly why the
+property is still worth asserting on the rest: the writing half exists, and the
+checking half must not grow one by accident or by importing its way into one.
+`afrd-ids` asserts its own no-local-time property the same way, by scanning its
+source rather than trusting that nobody added one.
+
+`filing.py` is excluded BY NAME below, not by a pattern, so a new module joins
+the guarded set by default and leaving it out has to be deliberate. Its own
+writes are guarded differently -- every path goes through `_guard_target`, and
+`test_filing.py` asserts both destinations and the refusal of a third.
 
 This is a source scan, so it catches the shape of a write, not a write reached
 through a name it cannot see. That is the same bound `afrd-ids` accepts, and it
@@ -20,6 +26,9 @@ from pathlib import Path
 import pytest
 
 PACKAGE = Path(__file__).resolve().parents[1] / "afrd_filing"
+
+# The one module allowed to write, and the reason this list is a list.
+WRITING_MODULES = {"filing.py"}
 
 _WRITING_MODES = ("w", "a", "x", "+")
 
@@ -48,7 +57,15 @@ _READ_ONLY_OS = {"walk", "environ", "getenv", "fspath", "sep", "path", "listdir"
 
 
 def sources():
-    return sorted(PACKAGE.glob("*.py"))
+    return sorted(p for p in PACKAGE.glob("*.py") if p.name not in WRITING_MODULES)
+
+
+def test_the_writing_module_is_where_it_is_expected():
+    """If `filing.py` is renamed, the exclusion above must follow it."""
+    assert (PACKAGE / "filing.py").is_file(), (
+        "filing.py has moved, and the read-only guard is now excluding a module "
+        "that does not exist while scanning nothing that writes"
+    )
 
 
 def test_the_package_has_sources_to_scan():

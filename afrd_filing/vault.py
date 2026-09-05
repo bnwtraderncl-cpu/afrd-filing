@@ -2,7 +2,13 @@
 
 Five of the nine checks resolve a ref against something already in the vault, so
 this module answers: which briefs exist, which hypotheses are registered, which
-data sources are registered and from when, and which `artifact_id`s are taken.
+data sources are registered and from when, which `artifact_id`s are taken, and
+which conventions the registry carries.
+
+The conventions map is read by the writing half, which is the only place the
+section 7.1 resolution check can run: the check is "resolves in `conventions.md`
+AFTER this filing", so it is asked against the registry as it will be, not as it
+is. Reading it is still read-only, and stays here with the other lookups.
 
 READ ONLY. Nothing here opens a file for writing, and the filing script's
 writing half is a separate concern in a separate module that does not exist yet
@@ -67,10 +73,15 @@ class Vault:
     hypotheses: dict        # HYP- ref -> registry entry
     data_sources: dict      # source_id -> DataSource
     artifact_ids: dict      # artifact_id -> Path of the note carrying it
+    conventions: dict       # CONV- ref -> registry entry
 
     @property
     def research_dir(self) -> Path:
         return self.root / "afrd" / "research"
+
+    @property
+    def conventions_registry(self) -> Path:
+        return self.root / "afrd" / "system" / "conventions.md"
 
 
 def load(vault_root=None, exclude=None) -> Vault:
@@ -95,6 +106,9 @@ def load(vault_root=None, exclude=None) -> Vault:
         hypotheses=_load_registry(root / "afrd" / "system" / "hypotheses.md", "ref"),
         data_sources=_load_data_sources(root),
         artifact_ids=_load_artifact_ids(root, excluded),
+        conventions=_load_registry(
+            root / "afrd" / "system" / "conventions.md", "ref"
+        ),
     )
 
 
