@@ -22,6 +22,27 @@ from afrd_filing.filing import _guard_target
 from afrd_filing.frontmatter import parse, split_frontmatter, yaml_blocks
 
 
+def date_of(artifact_id):
+    """`PRODUCER-YYYYMMDDTHHMMSSZ` -> `YYYY-MM-DD`.
+
+    Filing dates both the filename and a registry entry's `minted` off the id it
+    minted, never off a second clock reading -- `_minted_date`'s own reason is
+    that two clocks can disagree and date an entry to a different day than the
+    report it attributes. The expected date is read back off the id here for the
+    same reason, rather than written as a literal.
+
+    A literal is what these tests used to carry, and it made them pass only on
+    the day they were written: the suite went red on nothing but the date
+    turning over.
+
+    Parsed with the schema's own format rather than by calling filing's helper,
+    so a test still fails if that helper starts taking the date from somewhere
+    other than the id.
+    """
+    stamp = str(artifact_id).rsplit("-", 1)[1]
+    return "%s-%s-%s" % (stamp[0:4], stamp[4:6], stamp[6:8])
+
+
 # The fixture vault carries one filed note at MARKET_STRUCTURE-20260905T080000Z,
 # which is AHEAD of the clock for most of the day and would trip the ordering
 # guard on every mint. Filing tests move it back: what is being tested here is
@@ -125,8 +146,9 @@ def test_the_filename_is_readable_and_is_not_the_id(filing_vault):
     """Schema rule 7: date-prefixed, human-readable, deliberately not the id."""
     filed, path = file_report(REPORT, vault_root=filing_vault)
     assert filed
-    assert path.name == "2026-09-05-fixture-report.md"
-    assert frontmatter_of(path)["artifact_id"] not in path.name
+    artifact_id = frontmatter_of(path)["artifact_id"]
+    assert path.name == "%s-fixture-report.md" % date_of(artifact_id)
+    assert artifact_id not in path.name
 
 
 def test_the_body_is_filed_intact(filing_vault):
@@ -202,7 +224,10 @@ def test_a_proposed_convention_lands_and_the_ref_resolves(filing_vault):
     ][0]
 
     assert entry["status"] == "provisional"
-    assert entry["minted"] == "2026-09-05"
+    assert entry["minted"] == date_of(frontmatter_of(path)["artifact_id"]), (
+        "`minted` is the date of the report that first carried the ref, and "
+        "filing reads it off the minted id rather than off a second clock"
+    )
     assert entry["minted_by"] == frontmatter_of(path)["artifact_id"], (
         "minted_by must name the id filing minted. The producer does not write "
         "the field at all (section 7.0); filing supplies it, and a registry "

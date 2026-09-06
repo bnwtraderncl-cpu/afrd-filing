@@ -249,9 +249,17 @@ passed straight through.
 
 ## The five sample notes
 
-`afrd/research/` holds five notes. **None of them passes**, and none has been
-modified. What each fails on is recorded in `tests/test_sample_notes.py`, so a
-regression in the gate shows up as a *new* failure on a known note.
+`afrd/research/` holds five **sample** notes. **None of them passes**, and none
+has been modified. What each fails on is recorded in `tests/test_sample_notes.py`,
+so a regression in the gate shows up as a *new* failure on a known note.
+
+They are no longer the whole folder. The gate has filed real reports beside
+them, and those are expected to PASS -- `test_every_note_outside_the_corpus_validates`
+asserts exactly that. The corpus is a floor, not an inventory: the suite used to
+assert the folder held exactly these five, which meant the first successful
+filing turned the suite red and reported it as "the five sample notes moved".
+They had not moved. A test about five known failures should not break because
+the system it gates did its job.
 
 The failures are the vault's, not the gate's:
 
