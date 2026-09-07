@@ -33,10 +33,16 @@ ten commits.
 thing that should carry it. A ref that resolves nowhere is a dangling claim
 that some registry entry or filed note exists, and nothing else in the vault
 looks for one outside a report being filed -- the gate checks the report in
-front of it, so a ref that entered by hand, in a standard or a registry or a
-journal entry, is checked by nothing at all. The vault's known instance is
-`minted_by` on `CONV-nonpush-sign-preopen`, which names a report that was never
-filed.
+front of it, so a ref that entered by hand, in a standard or a registry, is
+checked by nothing at all. The vault's known instance is `minted_by` on
+`CONV-nonpush-sign-preopen`, which names a report that was never filed.
+
+Three things are NOT dangling and are not reported as such: a ref carrying
+`EXAMPLE` or a `<` template, a ref `id_adjustments.md` records as superseded
+(reported apart, under RETIRED), and anything under `afrd/journal/`, which that
+folder's `CLAUDE.md` puts outside resolution entirely. The exclusions are
+printed on every run, because an exclusion nobody can see is indistinguishable
+from a check that was never written.
 
 RUN IT
 ------
@@ -73,11 +79,14 @@ _ARTIFACT_ID = re.compile(r"\b([A-Z][A-Z_]*)-(\d{8}T\d{4}(?:\d{2})?Z)\b")
 # shape rather than naming an entry.
 _NOT_A_CLAIM = ("EXAMPLE", "YYYY", "<")
 
-# `id_adjustments.md` exists to record ids that were REPLACED. Every
-# `superseded_id` in it is retired by design and resolves to nothing -- that is
-# what the registry means. Counting them as dangling would make the one file
-# that documents the problem the largest source of false positives.
-_RETIRED_ID_KEY = re.compile(r"^\s*(?:-\s*)?superseded_id\s*:\s*(\S.*)$")
+# `afrd/journal/CLAUDE.md`: "Nothing resolves against this folder" and "a
+# script that needs a value must not read the journal for it." A journal entry
+# narrates governance -- what was decided, and what was later found to be
+# wrong -- so it quotes ids that were wrong when written and refs that never
+# existed. Section 3ag of `obsidian_migration_record.md` quotes two `CONV-`
+# refs precisely BECAUSE they resolve nowhere. Reconciling against that folder
+# reports the record of a defect as the defect.
+_RECONCILE_SKIP = ("afrd/journal",)
 
 
 def main(argv=None) -> int:
@@ -156,6 +165,7 @@ def _registries(root: Path) -> None:
         ("hypotheses.md", "ref"),
         ("data_sources.md", "source_id"),
         ("id_adjustments.md", "id"),
+        ("events.md", "ref"),
     ):
         path = system / name
         try:
@@ -234,6 +244,10 @@ def _reconcile(root: Path, notes) -> int:
     conventions = _try_registry(system / "conventions.md", "ref")
     hypotheses = _try_registry(system / "hypotheses.md", "ref")
     adjustments = _try_registry(system / "id_adjustments.md", "id")
+    events = _try_registry(system / "events.md", "ref")
+
+    retired = _retired_ids(adjustments)
+    notes = _reconciled_notes(root, notes)
 
     brief_refs, artifact_ids = _ids_carried_by_notes(root)
 
@@ -244,7 +258,7 @@ def _reconcile(root: Path, notes) -> int:
         "CONV": set(conventions),
         "HYP": set(hypotheses),
         "BRIEF": brief_refs | {k for k in adjustments if k.startswith("BRIEF-")},
-        "EVT": set(),
+        "EVT": set(events),
         "_ARTIFACT": artifact_ids | set(adjustments),
     }
 
@@ -252,36 +266,50 @@ def _reconcile(root: Path, notes) -> int:
     print("      CONV-      conventions.md            %3d entries" % len(known["CONV"]))
     print("      HYP-       hypotheses.md             %3d entries" % len(known["HYP"]))
     print("      BRIEF-     briefs/ + id_adjustments  %3d ids" % len(known["BRIEF"]))
-    print("      EVT-       NO REGISTRY EXISTS          0 entries")
+    print("      EVT-       events.md                 %3d entries" % len(known["EVT"]))
     print("      PRODUCER-  research/ + id_adjustments%3d ids" % len(known["_ARTIFACT"]))
     print("  excluded: refs carrying EXAMPLE, templates containing YYYY or <,")
-    print("            and superseded_id values in id_adjustments.md (retired")
-    print("            by design - see that file, \"`id` is the only current value\")")
+    print("            and afrd/journal/ entirely - that folder's CLAUDE.md,")
+    print("            \"nothing resolves against this folder\"")
+    print("  resolved-as-retired: every superseded_id in id_adjustments.md, at")
+    print("            any depth, cited anywhere - listed below, not hidden")
 
     found = {}   # ref -> [(relative path, line number), ...]
-    skipped = 0
     for path in notes:
         try:
             lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
         except OSError:
             continue
         for number, line in enumerate(lines, start=1):
-            retired = _RETIRED_ID_KEY.match(line)
             for ref in _refs_in(line):
-                if retired and ref in retired.group(1):
-                    skipped += 1
-                    continue
                 found.setdefault(ref, []).append(
                     (path.relative_to(root).as_posix(), number)
                 )
 
-    unresolved = {}
+    # Retired is checked BEFORE resolution, and reported apart from it. A value
+    # `id_adjustments.md` records as superseded is resolved -- it is accounted
+    # for, in the file that exists to account for it -- but it is resolved
+    # differently from a ref naming a live entry, and folding the two into one
+    # count would say the schema's history tables cite something current. They
+    # do not, and that is what makes them correct.
+    retired_cited, unresolved = {}, {}
     for ref, sites in found.items():
-        if not _resolves(ref, known):
+        if ref in retired:
+            retired_cited[ref] = sites
+        elif not _resolves(ref, known):
             unresolved[ref] = sites
 
-    print("\n  %d distinct refs cited, %d retired-id citations skipped"
-          % (len(found), skipped))
+    print("\n  %d distinct refs cited" % len(found))
+
+    if retired_cited:
+        citations = sum(len(sites) for sites in retired_cited.values())
+        print("\n  RETIRED - %d refs, %d citations. Superseded in "
+              "id_adjustments.md," % (len(retired_cited), citations))
+        print("  which is where a replaced id belongs. Cited as history, not as claim.")
+        for ref in sorted(retired_cited):
+            sites = retired_cited[ref]
+            print("      %-40s (%d citation%s)"
+                  % (ref, len(sites), "" if len(sites) == 1 else "s"))
 
     if unresolved:
         print("\n  UNRESOLVED - %d refs" % len(unresolved))
@@ -325,6 +353,75 @@ def _minted_by(root: Path, conventions, artifact_ids) -> int:
             print("      %-34s %s  DANGLING" % (ref, value))
             print("          no note in afrd/research/ carries this artifact_id")
     return dangling
+
+
+# `id_adjustments.md` exists to record ids that were REPLACED. Every
+# `superseded_id` in it is retired by design and resolves to nothing -- that is
+# what the registry means. Counting them as dangling would make the one file
+# that documents the problem the largest source of false positives.
+#
+# The set is built from that registry's PARSED KEYS, and a ref in it is
+# resolved-as-retired WHEREVER it is cited. The earlier line-local test -- skip
+# the ref only on a line that is itself a `superseded_id:` key -- made the
+# schema the second-largest source of false positives: the two "Was -> Now"
+# adjustment tables under rule 13 are a correctly sequenced history, and the
+# second table's "Now" column matches this registry exactly, yet every cell of
+# both read as a stale current claim.
+#
+# Structural rather than textual is the point. `id_adjustments.md` already
+# declares itself "the machine-readable record and ... the authoritative one",
+# so a value's retirement is a fact about the registry and not about the line
+# a citation happens to sit on. Moving a citation from a table into prose, or
+# quoting one in a standard, does not change the answer.
+def _retired_ids(adjustments) -> set:
+    """Every value `id_adjustments.md` records as superseded, at any depth.
+
+    Read from the parsed registry rather than matched against text, which is
+    the whole point: the file declares itself the authoritative machine-
+    readable record of retired ids, so membership here is a property of the
+    registry and not of the line a citation sits on.
+
+    `prior_adjustments` is walked because a chain retires every link in it. The
+    schema's first "Was -> Now" table cites the middle of two such chains --
+    values that were current for one day between a -12h correction and a
+    precision backfill -- and those are exactly as retired as the most recent
+    supersession. A `superseded_id: null` records that there was no earlier
+    value at all and contributes nothing.
+    """
+    out = set()
+    for entry in adjustments.values():
+        for value in _superseded_in(entry):
+            out.add(value)
+    return out
+
+
+def _superseded_in(entry):
+    value = entry.get("superseded_id")
+    if isinstance(value, str) and value:
+        yield value
+    prior = entry.get("prior_adjustments")
+    for item in prior if isinstance(prior, list) else []:
+        if isinstance(item, dict):
+            value = item.get("superseded_id")
+            if isinstance(value, str) and value:
+                yield value
+
+
+def _reconciled_notes(root: Path, notes):
+    """The notes reconciliation reads: everything but `_RECONCILE_SKIP`.
+
+    The inventory half still counts the whole vault -- "markdown N files" is a
+    statement about what exists and would be wrong if it quietly meant "what
+    the linter reads." Only resolution is scoped.
+    """
+    out = []
+    for path in notes:
+        relative = path.relative_to(root).as_posix()
+        if any(relative == d or relative.startswith(d + "/")
+               for d in _RECONCILE_SKIP):
+            continue
+        out.append(path)
+    return out
 
 
 def _refs_in(line: str):

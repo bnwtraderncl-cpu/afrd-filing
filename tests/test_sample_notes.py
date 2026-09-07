@@ -89,7 +89,18 @@ def loaded(real_vault):
 
 
 def notes(root: Path):
-    return sorted((root / "afrd" / "research").glob("*.md"))
+    """Every note in `afrd/research/`. `CLAUDE.md` is not one.
+
+    It is folder guidance for agents, carries no frontmatter and is not a
+    report, so the gate has nothing to validate in it -- but three tests here
+    read this glob as "notes needing frontmatter" and went red the moment one
+    was placed in the folder. `inventory._folder_ids` already excludes the name
+    for the same reason; this is that convention, applied where it was missed.
+    """
+    return sorted(
+        p for p in (root / "afrd" / "research").glob("*.md")
+        if p.name != "CLAUDE.md"
+    )
 
 
 def test_the_five_sample_notes_are_where_they_were(real_vault):
