@@ -8,3 +8,7 @@ venv/
 .idea/
 Thumbs.db
 desktop.ini
+
+# Specialist Bash command log, written by the vault PreToolUse guard.
+# Evidence for the query-grammar design; not source, not versioned.
+/logs/
