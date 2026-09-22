@@ -185,6 +185,36 @@ def test_the_retrying_status_the_schema_forbids_is_refused(vault):
     assert only(failures, "section 7 enum validity").found == "`retrying`"
 
 
+def test_the_unreproducible_fail_depth_is_accepted(vault):
+    """section 4.2: a third depth -- the brief was answered, the figure cannot be rebuilt."""
+    report = edit(
+        GOOD_REPORT,
+        "outcome: pass\nfinding: negative\n",
+        "outcome: fail\nfail_depth: unreproducible\nfail_reason: >-\n"
+        "  The purity axis names no composition order, so the qualifying\n"
+        "  set cannot be rebuilt.\n",
+    )
+    ok, failures = validate(report, vault_root=vault)
+    assert ok, render(failures)
+
+
+def test_an_unknown_fail_depth_is_refused_against_all_three(vault):
+    ok, failures = validate(
+        edit(
+            GOOD_REPORT,
+            "outcome: pass\nfinding: negative\n",
+            "outcome: fail\nfail_depth: cosmetic\nfail_reason: >-\n"
+            "  Something went wrong.\n",
+        ),
+        vault_root=vault,
+    )
+    assert not ok
+    f = only(failures, "section 7 enum validity")
+    assert f.where == "frontmatter `fail_depth`"
+    assert "`structural`, `substantive`, `unreproducible`" in f.expected
+    assert f.found == "`cosmetic`"
+
+
 def test_an_unknown_producer_or_stage_is_refused(vault):
     ok, failures = validate(
         edit(edit(GOOD_REPORT, "producer: market_structure", "producer: quant"),

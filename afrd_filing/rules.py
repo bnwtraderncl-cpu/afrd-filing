@@ -100,13 +100,19 @@ def matrix_column(outcome, hold_type):
 # agent may not coin one. `status` is the research-note enum -- a brief's
 # `brief_status` is a different field on a different class (schema, "Artifact
 # classes are distinct field sets").
+#
+# One exception to the docstring's "they agree today": `fail_depth` gained
+# `unreproducible` in the standard at v0.6 (section 4.2), and the schema's field
+# table still reads `structural | substantive`. The standard is followed here,
+# because section 7 is what this gate implements. The schema is behind and needs
+# the third value.
 ENUMS = {
     "outcome": ("pass", "hold", "fail"),
     "finding": ("positive", "negative", "inconclusive"),
     "review_flag": ("revisit", "anomaly", "data_gap", "contradicts"),
     "status": ("stored", "awaiting_operator", "superseded"),
     "hold_type": ("authority", "scope", "brief"),
-    "fail_depth": ("structural", "substantive"),
+    "fail_depth": ("structural", "substantive", "unreproducible"),
     "producer": (
         "macro",
         "market_structure",
